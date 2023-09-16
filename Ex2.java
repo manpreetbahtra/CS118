@@ -1,87 +1,239 @@
-/*
-* File: DumboController.java
-* Created: 17 September 2002, 00:34
-* Author: Stephen Jarvis
-*/
-
 //Preamble//
-/*Using the round function created unequal intervals. The probability of obtaining a right or behind was twice as likely than that of left or ahead. 
-This is because rounding allowed for numbers between 0.5 and 1.5 to be rounded as 1 and 1.5 to 2.5 to be rounded as 2 (generating right and behind 
-respectively), however only numbers between 0 and 0.5 were rounded to 0 and 2.5- 3 rounded to 3 (generating left and ahead respectively). 
-Hence, the range of numbers allocated to each direction was uneven, hence the probability was unequal. To ensure fair probabilities, I generated 
-random numbers between 0 (inclusive) and 4(exclusive), removing the Math.round function. If 0 was generated, direction was assigned left. 
-If 1 was generated, direction was assigned right. If 2 was generated, direction was assigned behind, otherwise ahead. This created 4 equal intervals, 
-hence fair probability in each case. 
-
-To incorporate the 1 in 8 chance, a new variable (chooseDirectionRandomly) with float data type was initialised which generates random decimal numbers 
-between 0 and 1. Also, float was included to notify the compiler that the programmer is aware that doubles could be generated, however are not needed. 
-If the number generated is less than or equal to 0.125 (which corresponds to 1/8) direction is randomised otherwise it branches to the next part of 
-the if else statement which corresponds to 7/8 probability. There is no condition included to check if there exists a wall before randomising 
-the direction when 1/8 chance is met.  */
+/*It saves space by only storing headings. Improvements- rather than storing junctions as junction recorder objects, I could have saved them as integers.
+This would have removed the need for junction recorder class. Tested if each junction is adding the correct heading through the use of print 
+statements. */
 
 import uk.ac.warwick.dcs.maze.logic.IRobot;
 
+import java.util.List;
+import java.util.Stack;
+import java.util.ArrayList;
+import java.util.Arrays;
+
 public class Ex2
 {
-	public void controlRobot(IRobot robot) {
-		int randno;
-		int direction;
-		int numberOfWalls = 0 ;
-		String roadtype = ""; //created a roadtype variable with string data type to output the relevant road type depending on no of walls. 
-		float chooseDirectionRandomly = (float)(Math.random());
+    List <Integer> allDirections = new ArrayList<>(Arrays.asList(IRobot.AHEAD, IRobot.BEHIND, IRobot.LEFT, IRobot.RIGHT)); 
 
-		do {
-			// Select a random number
-			randno = (int) (Math.random()*4);
+    private int pollRun = 0; 
+    private RobotData robotData; 
+    private int explorerMode; // 1 = explore, 0 = backtrack. 
+    public JunctionRecorder junctionRecord; 
 
-			// Convert this to a direction
-			if (chooseDirectionRandomly <= 0.125) { //0.125/1 = 1/8 chance. If the chance occurs, it randomly chooses a direction as follows.
-				if (randno == 0) { 
-					direction = IRobot.LEFT;
-					System.out.println("I'm going left " + roadtype);
-				}else if (randno == 1) {
-					direction = IRobot.RIGHT;
-					System.out.println("I'm going right " + roadtype);
-				}else if (randno == 2 ) {
-					direction = IRobot.BEHIND;
-					System.out.println("I'm going backwards  " + roadtype);
-				}else {
-					direction = IRobot.AHEAD;
-					System.out.println("I'm going forward  " + roadtype);
-				}
+//main method controlRobot which figures out which mode-exploring/backtracking the robot is in. 
+    public void controlRobot(IRobot robot) {
+        //On the first move of the first run of a new maze
+        if ((robot.getRuns() == 0) && (pollRun == 0)) {
+            robotData = new RobotData(); //clears the robot data stored previously, since it is a new maze, previous data is not useful.
+            explorerMode = 1;
+        }
 
-			}else if (randno == 0 ) { // This statement allows for 7/8 chance. 
-				direction = IRobot.LEFT; 
-				System.out.println("I'm going left " + roadtype);
+        if (explorerMode == 1){
+            exploreControl(robot);
+        } else{
+            backtrackControl(robot);
+        }
+        //according to the value of the variable, the relevant method is given control. 
+    }
 
-			}else if (randno == 1) { // This statement allows for 7/8 chance. 
-				direction = IRobot.RIGHT;
-				System.out.println("I'm going right " + roadtype);
+    //regardless of the method called, at a deadend, the robot is set to backtrack since it has nowhere else to go. 
+    //depending on the number of non wall exits, the relevant method is given control. 
+    private void exploreControl(IRobot robot){
+        int exits = nonWallExits(robot);
+        int direction;
 
-			}else if (randno == 2) { // This statement allows for 7/8 chance. 
-				direction = IRobot.BEHIND;
-				System.out.println("I'm going backwards  " + roadtype);
 
-			}else { // This statement allows for 7/8 chance. 
-				direction = IRobot.AHEAD;
-				System.out.println("I'm going forward  " + roadtype);
-			}
+        if (exits < 2) {
+            explorerMode = 0;
+            direction = deadEnd(robot); 
+        } else if (exits == 2 ){
+            direction = corridor(robot);
+        }else {
+            direction = junction(robot);
+        }
 
-		} while (robot.look(direction)==IRobot.WALL); //loop is repeated until there is a wall.
+        robot.face(direction);
+        pollRun++; 
+    }
 
-		if (robot.look(IRobot.LEFT) == IRobot.WALL & robot.look(IRobot.RIGHT) == IRobot.WALL & robot.look(IRobot.AHEAD) == IRobot.WALL){
-			roadtype = "at a deadend"; // if there are walls to the left, right and ahead of the robot, it is at a deadend. Strict operators are used so that each side of the operator is evaluated. 
-			numberOfWalls+=3;
-		} else if (robot.look(IRobot.LEFT) == IRobot.WALL & robot.look(IRobot.RIGHT) == IRobot.WALL) {
-			roadtype = "down a corridor"; // if there are walls to the left and right, the robot is in a corridor. 
-			numberOfWalls+=2;
-		} else if (robot.look(IRobot.LEFT) == IRobot.WALL | robot.look(IRobot.RIGHT) == IRobot.WALL) {
-			roadtype = "at a junction"; // if there are walls to the left or right, the robot is at a junction. 
-			numberOfWalls+=1;
-		} else {
-			roadtype = "crossroads"; // if there are no walls, it must be at a crossroads. 
-		}
+    //after each step poll run is incremented. 
+    private void backtrackControl(IRobot robot){
+        int exits = nonWallExits(robot);
+        int direction;
 
-		robot.face(direction); /* Face the robot in this direction */ 
-	}
+
+        if (exits < 2) {
+            explorerMode = 0;
+            direction = deadEnd(robot); 
+        } else if (exits == 2 ){
+            direction = corridor(robot);
+        }else {
+            direction = junction(robot);
+        }
+        
+        robot.face(direction);
+        pollRun++; 
+    }
+
+    //Robot has to go behind at a deadend, except when it is starting. Using the robot's starting position a boolean is created.
+    //If the boolean isStarting returns true, it checks which direction is not a wall, otherwise goes behind.
+    private int deadEnd(IRobot robot){
+        boolean isStarting = robot.getLocation().x == 1 && robot.getLocation().y == 1;
+        if (isStarting) {
+            explorerMode = 1;
+            for (int direction : this.allDirections) {
+                if (robot.look(direction) != IRobot.WALL){
+                    return direction;
+                }
+            }
+        }
+        return IRobot.BEHIND;
+    }
+
+
+    private int corridor(IRobot robot){
+            // left, right blocked -> go ahead
+        int directionToFace = IRobot.AHEAD;
+        if (robot.look(IRobot.RIGHT) == IRobot.WALL && robot.look(IRobot.LEFT) == IRobot.WALL){
+            return IRobot.AHEAD;
+        }
+
+            // case at corner
+        if (robot.look(IRobot.AHEAD) == IRobot.WALL){
+            if (robot.look(IRobot.RIGHT) == IRobot.WALL) {
+                directionToFace = IRobot.LEFT;
+            } else {
+                directionToFace = IRobot.RIGHT;
+            }
+        }
+        return directionToFace;
+    }
+
+    //adds the directions which are passages or beenbefores in their corresponding arraylists.
+    //if there is only 1 beenbefore, it is a new junction, which is then recorded. 
+    //if there are passages, it randomly chooses between all the passages.
+    //if no passages, it pops the top heading and reverses it.  
+    private int junction(IRobot robot){
+        List <Integer> passages = new ArrayList<>();
+        List <Integer> beenbefores = new ArrayList<>();
+        List <Integer> possibilties = new ArrayList<>(Arrays.asList(IRobot.AHEAD, IRobot.LEFT, IRobot.RIGHT, IRobot.BEHIND)); 
+        int directionToFace = IRobot.AHEAD;
+
+        for (int relativeDirection : possibilties){
+            if (robot.look(relativeDirection) == IRobot.PASSAGE){
+                passages.add(relativeDirection);
+            }else if (robot.look(relativeDirection) == IRobot.BEENBEFORE){
+                beenbefores.add(relativeDirection);
+            }
+        }
+
+        int n = beenbefores.size();
+        if (n ==1){
+            robotData.recordJunction(robot);
+        }
+
+        if (passages.size() >= 1 ){
+            //randomly choose between all the passages.
+            explorerMode = 1;
+            int randomIndex = (int)(Math.random() * passages.size());
+            directionToFace = passages.get(randomIndex);
+        }else if (passages.size() ==0) {
+            explorerMode = 0;
+            //calculate opposite of the direction it came from.
+            JunctionRecorder junc = robotData.popJunction();
+            int arrivalHeading = junc.getHeading();
+            robot.setHeading(arrivalHeading);
+            directionToFace = IRobot.BEHIND;
+        }
+        return directionToFace;
+    }
+
+    //this method returns the number of non wall exits relative to the robot's position. 
+    //It checks using a for loop 4 relative directions and returns how many were non-wall.
+    private int nonWallExits(IRobot robot) {
+        int withoutWallExits = 0;
+
+        for (int i = 0; i<4; i++){
+            if (robot.look(IRobot.AHEAD+i) != IRobot.WALL){
+                withoutWallExits +=1;
+                }
+        }
+        return withoutWallExits;
+    }
+
+
+    public void reset(){
+        robotData.reset();
+        explorerMode = 1;
+    }
+
+
+}
+
+class RobotData
+{   
+    //implemented a stack to store heading of each junction. 
+    private Stack <JunctionRecorder> junctions = new Stack<>();
+
+    public void reset() {
+        this.junctions = new Stack<>(); 
+    }
+
+    //to optimise storage, only headings are stored. 
+    public void recordJunction(IRobot robot) {
+        JunctionRecorder newJunction = new JunctionRecorder(robot.getHeading());
+        junctions.push(newJunction);
+        this.printJunction(robot);
+    }
+
+    public int junctionsCount(){
+        return junctions.size();
+    }
+
+    public void printJunction(IRobot robot) {
+        JunctionRecorder store = peekJunction();
+        System.out.println("heading " + direction(store.getHeading()));
+    }
+
+    //this returns the topmost elements in the stack. 
+    public JunctionRecorder peekJunction(){
+        return this.junctions.peek();
+    }
+    //this returns the topmost elements in the stack and removes it. 
+    public JunctionRecorder popJunction(){
+        return this.junctions.pop();
+    }
+
+        //for readability of headings. 
+    public String direction(int absoluteDirection) {
+        switch (absoluteDirection) {
+            case IRobot.NORTH:
+                return "NORTH";
+            case IRobot.SOUTH:
+                return "SOUTH";
+            case IRobot.WEST:
+                return "WEST";
+            case IRobot.EAST:
+                return "EAST";
+        }
+        return "";
+    }
+
+}
+
+//Junction recorder class now only has heading attribute to save storage.
+class JunctionRecorder
+{
+
+    private int heading;//declared the properties of the class.
+    
+
+    //getter needed for printing heading of each junction.
+    public int getHeading(){
+        return this.heading;
+    }
+
+    //constructor method
+    public JunctionRecorder (int heading){
+        this.heading = heading;
+    }
 }

@@ -1,34 +1,16 @@
-/*
- * File:    Broken   .java
- * Created: 7 September 2001
- * Author:  Stephen Jarvis
- */
-
-/* To check whether the target is to the north of the robot, isTargetNorth method is called. Y-coordinate of the
-target's position with y coordinate of the robot's position using arithmetic operators. If y coordinate of the target is less
-than robot's y coordinate, the target is to the north of robot. If their y coordinate is the same, they are on the same level
-vertically. Otherwise, the target is to the south of the robot.
-
-To check whether the target is to the east of the robot, isTargetEast method is used. x coordinates of the robot's and target's 
-location is compared. If target's x coordinate is greater than robot's, then the target is to the east of robot. If the target's
-x coordinate is less than robot's, the target is to the west of the robot, otherwise x coordinates are equal 
-and they are on the same level horizontally.
-
-To test the north method, I tested the logical paths of the method. I tested the case when y of target is less than robot's y, in 
-it correctly outputted north; the case where target and robot were equal vertically, again outputting the expected result. I also tested 
-when robot was to the north of target, and it produced an output of -1. Similar testing approach was used for isTargetEast. 
-I used this approach because there were only 3 logical paths that needed to be tested in each method. Hence, it was easy to evaluate
-all the cases to see if any produced errors. note- terminal prints the direction in words and the number too. So you will see 2 numbers and 2 words for direction. 
-
-For the lookheading function, I used the getHeading method to save the robot's initial heading, so that the robot could return back to its heading after 
-checking for wall, beenbefore and passage. Then I calculated the difference between the heading given and heading that the robot is facing. If statement
-is then used to check which relative direction robot should look in. Then, the robot is set to its initial heading and the result of the look method is returned.
-
-For the heading controller method, I created array lists. In one of the array list, directions which head the robot towards the target(priorities) were stored. 
-In possibilties arraylist, all headings were stored. If the output from isTargetNorth or isTargetEast is true, the corresponding heading is added to the priorities 
-array. To remove wall facing headings, lookHeading method is used with the heading from arrays. If lookHeading method does not output wall, the heading is added to a new
-arraylist(named priority/possibility without walls). If there are no elements in the priority without walls array, a random direction from possibilties without walls is 
-chosen, otherwise they are randomly chosen from the priority without walls array. This then becomes the output for the method. */
+//Preamble//
+/*When there are no passages, the first time it treats it as deadend and the next time it backtracks, because it could have
+encountered the same loop from a different heading. Previous exercises were incapable of solving loopy mazes because if there
+ were no passages, it reversed direction, but in this exercise where 1 loop sets the heading to backtrack, the adjacent loop could 
+ also set the heading to backtrack, which means the robot will be switching headings all the time. In this implementation search junction
+is called when there are 3 or more beenbefores, which means fully explored. If only 1 beenbefore, it is a mew junction and is recorded.
+Count method returns the no. of times the specific junction has been encountered. If it returns 1 and there is a passage left with 3 beenbefores,
+it indicates a crossroads, it should go behind because entering the passage would cause it to loop. If there are no passages and the count returns 
+1, it should be treated as deadend. If it is second time at the junction with no passages left, it should backtrack. I also included that it
+chooses randomly from beenbefores, to ensure no test cases are left. Count is incremented each time search junction is called for the specific x y coordinates.
+Junction recorder also has count attribute because for each junction it needs to be known, how many times it has been encountered. I also attempted to implement 
+Tremaux, in which the first time it enters a junction it adds 1 to the heading in which it entered from for the specifis junction, and if the heading returns 2,
+it should backtrack, effectively reducing loopy maze to a prim maze, however I failed in doing so. */
 
 import uk.ac.warwick.dcs.maze.logic.IRobot;
 import java.util.List;
@@ -37,160 +19,287 @@ import java.util.Arrays;
 
 public class Ex3
 {
+    List <Integer> allDirections = new ArrayList<>(Arrays.asList(IRobot.AHEAD, IRobot.BEHIND, IRobot.LEFT, IRobot.RIGHT)); 
 
-   private int lookHeading (IRobot robot, int absoluteDirection){
-   
-      int initialHeading = robot.getHeading(); //saves robot's intial heading
-      int differenceBetweenAbsoluteAndInitial = absoluteDirection - initialHeading;
-      int objectAhead;  
-      int directionToLookIn;
-      
+    private int pollRun = 0; 
+    private RobotData robotData; 
+    private int explorerMode; // 1 = explore, 0 = backtrack. 
+    public JunctionRecorder junctionRecord; 
 
-      if (differenceBetweenAbsoluteAndInitial ==-1 | differenceBetweenAbsoluteAndInitial ==3) {
-         directionToLookIn = IRobot.LEFT;
-      } else if (differenceBetweenAbsoluteAndInitial == -2 | differenceBetweenAbsoluteAndInitial ==2){
-         directionToLookIn = IRobot.BEHIND;
-      } else if (differenceBetweenAbsoluteAndInitial == -3 | differenceBetweenAbsoluteAndInitial == 1){
-         directionToLookIn = IRobot.RIGHT;
-      } else {
-         directionToLookIn = IRobot.AHEAD;
-      }
+    //main method controlRobot which figures out which mode-exploring/backtracking the robot is in. 
+    public void controlRobot(IRobot robot) {
+        //On the first move of the first run of a new maze
+        if ((robot.getRuns() == 0) && (pollRun == 0)) {
+            robotData = new RobotData(); //clears the robot data stored previously, since it is a new maze, previous data is not useful.
+            explorerMode = 1;
+        }
 
-      objectAhead = robot.look(directionToLookIn);
-      
-      robot.setHeading(initialHeading);
+        if (explorerMode == 1){
+            exploreControl(robot);
+        } else{
+            backtrackControl(robot);
+        }
+        //according to the value of the variable, the relevant method is given control. 
+    }
 
-
-      if (objectAhead == IRobot.WALL) {
-         //return IRobot.WALL or objectAhead- better approach
-         System.out.println("IRobot.WALL");
-      } else if (objectAhead == IRobot.PASSAGE){
-         //return IRobot.PASSAGE or objectAhead
-         System.out.println("IRobot.PASSAGE");
-      } else {
-         //return IRobot.BEENBEFORE or objectAhead
-         System.out.println("IRobot.BEENBEFORE");
-      }
-      return objectAhead;
-   }
+    //regardless of the method called, at a deadend, the robot is set to backtrack since it has nowhere else to go. 
+    //depending on the number of non wall exits, the relevant method is given control. 
+    private void exploreControl(IRobot robot){
+        int exits = nonWallExits(robot);
+        int direction;
 
 
-   private byte isTargetNorth(IRobot robot) {
-      byte northResult;
-      
-      if (robot.getTargetLocation().y < robot.getLocation().y) { //if the y coordinate of the target's location is less than robot's location, the target is to the north of robot. 
-         northResult = 1; //This works because the maze's leftmost corner is (0,0) and bottom right (n,n) 
-         System.out.println("Target is North");
-      }else if (robot.getTargetLocation().y == robot.getLocation().y) {// if their y coordinate is the same, they are in the same latitude.
-         northResult = 0;
-         System.out.println("Target is on the same vertical level.");
-      }else {
-         northResult = -1; // otherwise the target must be to the south of the robot.
-         System.out.println("Target is South");
-      }return northResult;
+        if (exits < 2) {
+            explorerMode = 0;
+            direction = deadEnd(robot); 
+        } else if (exits == 2 ){
+            direction = corridor(robot);
+        }else {
+            direction = junction(robot);
+        }
 
-   }
+        robot.face(direction);
+        pollRun++; 
+    }
 
-   private byte isTargetEast(IRobot robot) {
-      byte eastResult;
-
-      if (robot.getTargetLocation().x > robot.getLocation().x) { //if the x coordinate of the target's location is greater than robot's location, the target is to the east of robot. 
-         eastResult = 1;
-         System.out.println("Target is East");
-      }else if (robot.getTargetLocation().x < robot.getLocation().x) { //if the x coordinate of the target's location is less than robot's location, the target is to the west of robot. 
-         eastResult = -1;
-         System.out.println("Target is West");
-      }else {
-         eastResult = 0; // if their x coordinate is the same, they are in the same longitude. 
-         System.out.println("Target is on the Same longitude");
-      }return eastResult;
-   }
-
-   private int headingController(IRobot robot){
-      List <Integer> priorities = new ArrayList<>();
-      List <Integer> possibilities = new ArrayList<>(Arrays.asList(IRobot.NORTH, IRobot.SOUTH, IRobot.EAST, IRobot.WEST));
-      List <Integer> priorityWithoutWalls = new ArrayList<>();
-      List <Integer> possibilityWithoutWalls = new ArrayList <>();
-
-      //create priorities
-      int targetIsNorth = this.isTargetNorth(robot);
-      int targetIsEast = this.isTargetEast(robot);
-
-      if (targetIsNorth == 1) {
-         priorities.add(IRobot.NORTH);
-      } else if (targetIsNorth == -1) {
-         priorities.add(IRobot.SOUTH);
-      }
-
-      if (targetIsEast == 1) {
-         priorities.add(IRobot.EAST);
-      } else if (targetIsEast == -1) {
-         priorities.add(IRobot.WEST);
-      }
+    //after each step poll run is incremented. 
+    private void backtrackControl(IRobot robot){
+        int exits = nonWallExits(robot);
+        int direction;
 
 
-      //remove walls from priority
-
-      for (int i=0; i<priorities.size(); i++) {
-         if (lookHeading(robot, priorities.get(i)) != IRobot.WALL) {
-            priorityWithoutWalls.add(priorities.get(i));
-         }
-      }
-
-      //remove walls from possibility
-
-      for (int j=0; j<possibilities.size(); j++) {
-         if (lookHeading(robot, possibilities.get(j)) != IRobot.WALL) {
-            possibilityWithoutWalls.add(possibilities.get(j));
-         }
-      }
-
-      //if there are no priorites without walls then just pick a random direction. priorites is empty set.
-      int directionChosen;
-      if (priorityWithoutWalls.isEmpty()) {
-         int randomIndex = (int)(Math.random() * possibilityWithoutWalls.size());
-         directionChosen= possibilityWithoutWalls.get(randomIndex);
-      } else{
-            //if there are priorities without walls, pick a direction from the priorities without walls. 
-         int randomIndex = (int)(Math.random() * priorityWithoutWalls.size());
-         directionChosen= priorityWithoutWalls.get(randomIndex);
-      }
-
-      return directionChosen;
-   }
+        if (exits < 2) {
+            explorerMode = 0;
+            direction = deadEnd(robot); 
+        } else if (exits == 2 ){
+            direction = corridor(robot);
+        }else {
+            direction = junction(robot);
+        }
+        
+        robot.face(direction);
+        pollRun++; 
+    }
 
 
-   public void controlRobot(IRobot robot) {
-      int direction; 
-      int randno;
+    //Robot has to go behind at a deadend, except when it is starting. Using the robot's starting position a boolean is created.
+    //If the boolean isStarting returns true, it checks which direction is not a wall, otherwise goes behind.
+    private int deadEnd(IRobot robot){
+        int directionToFace = IRobot.BEHIND;
+        boolean isStarting = robot.getLocation().x == 1 && robot.getLocation().y == 1;
+        if (isStarting) {
+            explorerMode = 1;
+            for (int direction : this.allDirections) {
+                if (robot.look(direction) != IRobot.WALL){
+                    return direction;
+                }
+            }
+        }
+        return IRobot.BEHIND;
+    }
 
-      do {
-         randno = (int) Math.round(Math.random()*3);
 
-         if (randno == 0){
-            direction = IRobot.LEFT;
-         }else if (randno == 1){
-            direction = IRobot.RIGHT;
-         }else if (randno == 2){
-            direction = IRobot.BEHIND;
-         }else {
-            direction = IRobot.AHEAD;
-         }
-      }while (robot.look(direction)==IRobot.WALL);
+    private int corridor(IRobot robot){
+            // left, right blocked -> go ahead
+        int directionToFace = IRobot.AHEAD;
+        if (robot.look(IRobot.RIGHT) == IRobot.WALL && robot.look(IRobot.LEFT) == IRobot.WALL){
+            return IRobot.AHEAD;
+        }
 
-      robot.face(direction);  /* Face the direction */  
+            // case at corner
+        if (robot.look(IRobot.AHEAD) == IRobot.WALL){
+            if (robot.look(IRobot.RIGHT) == IRobot.WALL) {
+                directionToFace = IRobot.LEFT;
+            } else {
+                directionToFace = IRobot.RIGHT;
+            }
+        }
+        return directionToFace;
+    }
 
-      isTargetNorth(robot);
-      isTargetEast(robot);
-      lookHeading(robot, IRobot.NORTH);
-      headingController(robot);
-      int heading = headingController(robot);
-      ControlTest.test(heading, robot);
-      robot.setHeading(heading);
+    //if there are 3 or more beenbeofres, it is a explored junction/crossroad and must already exist in the junctions arraylist.
+    //it then searches the heading it entered from previously and increments the count within the search junction function to indicate this junction
+    //has been visited one more time. If there is a passage and 3 beenbefores it is at a crossroad-> and has done a loop since count returns 1.- treat
+    //as deadend. The count only returns 1 when there are 3 or 4 beenbefores, meaning fully explored, so should go back. If count returns 2, and 
+    //there are no passages, it should backtrack. Sometimes the robot glitches at loops so I use beenbefores.random to ensure no case fails.
+    private int junction(IRobot robot){
+        List <Integer> passages = new ArrayList<>();
+        List <Integer> beenbefores = new ArrayList<>();
+        List <Integer> possibilties = new ArrayList<>(Arrays.asList(IRobot.AHEAD, IRobot.LEFT, IRobot.RIGHT, IRobot.BEHIND)); 
+        int xCoordinate= robot.getLocation().x;
+        int yCoordinate = robot.getLocation().y;
+        int searchOutput= 0;
+        int directionToFace = IRobot.AHEAD;
 
-  }
+        for (int relativeDirection : possibilties){
+            if (robot.look(relativeDirection) == IRobot.PASSAGE){
+                passages.add(relativeDirection);
+            }else if (robot.look(relativeDirection) == IRobot.BEENBEFORE){
+                beenbefores.add(relativeDirection);
+            }
+        }
 
-   public void reset() {
-     ControlTest.printResults();
-   }
+
+        int n = beenbefores.size();
+        if (n ==1){
+            robotData.recordJunction(robot);// after recording the junction,get its count
+            robotData.countMethod(robot, xCoordinate, yCoordinate);
+        }else if (n>=3){
+            //first encounters--> then increments the count in the searchJunction function because if a junction is being searched for here, it means we are encountering it again. 
+            searchOutput = robotData.searchJunction(robot, xCoordinate, yCoordinate);
+        }
+
+
+        if (passages.size() >= 1 ){
+            if(n==3 && robotData.countMethod(robot, xCoordinate, yCoordinate)==1){
+    //If there is a passage and 3 beenbefores it is at a crossroad-> and has done a loop since count returns 1.- treat as deadend
+                directionToFace= IRobot.BEHIND;
+            } else {
+                //pick random passage
+                int randomIndex = (int)(Math.random() * passages.size());
+                directionToFace = passages.get(randomIndex);
+            }
+        }else if (passages.size()==0 && robotData.countMethod(robot, xCoordinate, yCoordinate)==1){
+            //explored fully- treat as deadend
+            directionToFace=IRobot.BEHIND;
+        }else if (passages.size()==0 && robotData.countMethod(robot, xCoordinate, yCoordinate)==2){
+            //2nd time at this junction- so backtrack
+            robot.setHeading(searchOutput);
+            directionToFace= IRobot.BEHIND;
+        } else{
+            //too many times that it has encountered a junction. 
+            explorerMode = 0;
+            int randomIndex = (int)(Math.random() * beenbefores.size());
+            directionToFace = beenbefores.get(randomIndex);
+        }
+        return directionToFace;
+    }
+
+
+    //this method returns the number of non wall exits relative to the robot's position. 
+    //It checks using a for loop 4 relative directions and returns how many were non-wall.
+    private int nonWallExits(IRobot robot) {
+        int withoutWallExits = 0;
+
+        for (int i = 0; i<4; i++){
+            if (robot.look(IRobot.AHEAD+i) != IRobot.WALL){
+                withoutWallExits +=1;
+            }
+        }
+        return withoutWallExits;
+    }
+
+    public void reset(){
+        robotData.resetJunctionCounter();
+        explorerMode = 1;
+    }
+
+
+
+}
+
+class RobotData
+{
+    private static int junctionCounter;
+    public List <JunctionRecorder> junctions = new ArrayList<>();
+    private JunctionRecorder junctionRecord;
+
+
+    public RobotData() {
+        //robotdata stores a array of JunctionRecorders.
+        junctionCounter = 0;
+    }
+
+
+    public void resetJunctionCounter() {
+        junctionCounter = 0;
+    }
+
+    //adds junctions to the arraylist. In this exercise, I store x,y along with headings to identify if that specific junction has been rencountered. 
+    public void recordJunction(IRobot robot) {
+        JunctionRecorder junction = new JunctionRecorder(robot.getLocation().x, robot.getLocation().y, robot.getHeading());
+        junctions.add(junction);
+        junctionCounter+=1;
+        this.printJunction(robot);
+    }
+
+    public int junctionsCount(){
+        return junctions.size();
+    }
+
+    public void printJunction(IRobot robot) {
+        JunctionRecorder store = junctions.get(junctionCounter-1);
+        System.out.println("Junction " + junctionCounter + "(x= " + store.getXCoordinate() + " y= " + store.getYCoordinate() + " ) heading " + direction(store.getHeading()));
+    }
+
+
+    //Loops through, using a for loop, all the junctions that have been encountered so far.
+    //returns the heading from which the robot previously entered the junction.
+    //also increments the count which tells how many times specific junction has been encountered. 
+    public int searchJunction(IRobot robot, int xCoordinate, int yCoordinate){
+        for (int i=0; i<junctionsCount(); i++){
+            JunctionRecorder nextElement = junctions.get(i);
+            if (xCoordinate == nextElement.getXCoordinate() && yCoordinate == nextElement.getYCoordinate()){
+                nextElement.count++;
+                return nextElement.getHeading();
+            }
+        }
+        return -1; //-1 for not found.
+    }
+
+    //returns the count of how many times the robot has been at the specific. It identifies that by matching x and y coordinates, which it takes as parameters from junctions function.
+    public int countMethod(IRobot robot, int xCoordinate, int yCoordinate){
+        int count = 0;
+        for (int i=0; i<junctionsCount(); i++){
+            JunctionRecorder nextElement = junctions.get(i);
+            if (xCoordinate == nextElement.getXCoordinate() && yCoordinate == nextElement.getYCoordinate()){
+                count = nextElement.count;
+            }
+        }
+        return count;
+    }
+
+    //for readability of headings. 
+    public String direction(int absoluteDirection) {
+        switch (absoluteDirection) {
+            case IRobot.NORTH:
+                return "NORTH";
+            case IRobot.SOUTH:
+                return "SOUTH";
+            case IRobot.WEST:
+                return "WEST";
+            case IRobot.EAST:
+                return "EAST";
+        }
+        return "";
+    }
+
+}
+
+class JunctionRecorder
+{
+
+    public int xCoordinate, yCoordinate, heading, count;//declared the properties of the class.
+    private RobotData robotData; //data store for junctions
+
+    //getters needed for printing individual elements of a junction and matching those to the current junction in searchjunction and count method.
+    public int getXCoordinate(){
+        return this.xCoordinate;
+    }
+
+    public int getYCoordinate(){
+        return this.yCoordinate;
+    }
+    public int getHeading(){
+        return this.heading;
+    }
+
+    //constructor method, which now also has count as attribute. 
+    public JunctionRecorder (int xCoordinate, int yCoordinate, int heading){
+        this.xCoordinate = xCoordinate;
+        this.yCoordinate = yCoordinate;
+        this.heading = heading;
+        this.count = count;
+    }
+
 }
